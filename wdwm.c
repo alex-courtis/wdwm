@@ -2318,6 +2318,24 @@ static bool handle_keybinding(struct tinywl_server *server, xkb_keysym_t sym) {
 	return true;
 }
 
+static bool handle_vtswitch(struct wlr_backend *backend, const xkb_keysym_t *keysyms, int keysyms_len) {
+	for (int i = 0; i < keysyms_len; ++i) {
+		xkb_keysym_t keysym = keysyms[i];
+		if (keysym >= XKB_KEY_XF86Switch_VT_1 && keysym <= XKB_KEY_XF86Switch_VT_12) {
+			if (wlr_backend_is_multi(backend)) {
+				struct wlr_session *session = wlr_backend_get_session(backend);
+				if (session) {
+					unsigned vt = keysym - XKB_KEY_XF86Switch_VT_1 + 1;
+					wlr_session_change_vt(session, vt);
+				}
+			}
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static void keyboard_handle_key(
 		struct wl_listener *listener, void *data) {
 	/* This event is raised when a key is pressed or released. */
@@ -2342,6 +2360,10 @@ static void keyboard_handle_key(
 		for (int i = 0; i < nsyms; i++) {
 			handled = handle_keybinding(server, syms[i]);
 		}
+	}
+
+	if (!handled) {
+		handled = handle_vtswitch(server->backend, syms, nsyms);
 	}
 
 	if (!handled) {
@@ -3087,6 +3109,6 @@ int tinywlmain(int argc, char *argv[]) {
 int
 main(int argc, char *argv[])
 {
-//	return dwmmain(argc, argv);
+	/* return dwmmain(argc, argv); */
 	return tinywlmain(argc, argv);
 }
