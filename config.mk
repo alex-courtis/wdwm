@@ -27,9 +27,15 @@ WAYLANDLIBS = -lwayland-server
 WAYLANDPROTOCOLS = /usr/share/wayland-protocols
 WAYLANDSCANNER = /usr/bin/wayland-scanner
 
+# xkbcommon
+XKBLIBS = -lxkbcommon
+
+# wlroots
+WLROOTSLIBS = -lwlroots
+
 # includes and libs
 INCS = -I${X11INC} -I${FREETYPEINC}
-LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} ${WAYLANDLIBS}
+LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} ${WAYLANDLIBS} ${XKBLIBS} ${WLROOTSLIBS}
 
 # flags
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_POSIX_C_SOURCE=2 -DVERSION=\"${VERSION}\" ${XINERAMAFLAGS}
