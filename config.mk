@@ -32,12 +32,15 @@ XKBLIBS = -lxkbcommon
 # wlroots
 WLROOTSLIBS = -lwlroots
 
+# pixman
+PIXMANINC = /usr/include/pixman-1
+
 # includes and libs
-INCS = -I${X11INC} -I${FREETYPEINC}
+INCS = -I. -I${X11INC} -I${FREETYPEINC} -I${PIXMANINC}
 LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} ${WAYLANDLIBS} ${XKBLIBS} ${WLROOTSLIBS}
 
 # flags
-CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_POSIX_C_SOURCE=2 -DVERSION=\"${VERSION}\"
+CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_POSIX_C_SOURCE=2 -DVERSION=\"${VERSION}\" -DWLR_USE_UNSTABLE
 #CFLAGS   = -g -std=c99 -pedantic -Wall -O0 ${INCS} ${CPPFLAGS}
 CFLAGS   = -std=c99 -pedantic -Wall -Wno-deprecated-declarations -Os ${INCS} ${CPPFLAGS}
 LDFLAGS  = ${LIBS}

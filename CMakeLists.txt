@@ -7,11 +7,14 @@ add_compile_definitions(
         VERSION="${CMAKE_PROJECT_VERSION}"
         _DEFAULT_SOURCE
         _BSD_SOURCE
-        _POSIX_C_SOURCE=2)
+        _POSIX_C_SOURCE=2
+        WLR_USE_UNSTABLE)
 
 include_directories(
+        .
         /usr/X11R6/include
-        /usr/include/freetype2)
+        /usr/include/freetype2
+        /usr/include/pixman-1)
 
 add_executable(wdwm
         config.h
