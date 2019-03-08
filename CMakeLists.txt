@@ -7,8 +7,7 @@ add_compile_definitions(
         VERSION="${CMAKE_PROJECT_VERSION}"
         _DEFAULT_SOURCE
         _BSD_SOURCE
-        _POSIX_C_SOURCE=2
-        XINERAMA)
+        _POSIX_C_SOURCE=2)
 
 include_directories(
         /usr/X11R6/include
@@ -28,4 +27,7 @@ target_link_libraries(wdwm
         X11
         Xinerama
         fontconfig
-        Xft)
+        Xft
+        wayland-server
+        xkbcommon
+        wlroots)

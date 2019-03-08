@@ -36,9 +36,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
-#ifdef XINERAMA
 #include <X11/extensions/Xinerama.h>
-#endif /* XINERAMA */
 #include <X11/Xft/Xft.h>
 
 #include "drw.h"
@@ -970,7 +968,6 @@ incnmaster(const Arg *arg)
 	arrange(selmon);
 }
 
-#ifdef XINERAMA
 static int
 isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 {
@@ -980,7 +977,6 @@ isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 			return 0;
 	return 1;
 }
-#endif /* XINERAMA */
 
 void
 keypress(XEvent *e)
@@ -1852,7 +1848,6 @@ updategeom(void)
 {
 	int dirty = 0;
 
-#ifdef XINERAMA
 	if (XineramaIsActive(dpy)) {
 		int i, j, n, nn;
 		Client *c;
@@ -1907,7 +1902,6 @@ updategeom(void)
 		}
 		free(unique);
 	} else
-#endif /* XINERAMA */
 	{ /* default monitor setup */
 		if (!mons)
 			mons = createmon();
