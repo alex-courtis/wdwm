@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 project(wdwm VERSION 7.0 LANGUAGES C)
 
-set(CMAKE_C_FLAGS "-std=c99 -pedantic -Wall -Wno-deprecated-declarations")
+set(CMAKE_C_FLAGS "-std=c99 -pedantic -Wall")
 
 add_compile_definitions(
         VERSION="${CMAKE_PROJECT_VERSION}"
