@@ -1,4 +1,4 @@
-# dwm - dynamic window manager
+# wdwm - wayland dynamic window manager
 # See LICENSE file for copyright and license details.
 
 include config.mk

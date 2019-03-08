@@ -1,5 +1,5 @@
-# dwm version
-VERSION = 6.2
+# wdwm version
+VERSION = 7.0
 
 # Customize below to fit your system
 
