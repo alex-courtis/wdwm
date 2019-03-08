@@ -3,7 +3,7 @@
 
 include config.mk
 
-SRC = drw.c wdwm.c util.c
+SRC = drw.c wdwm.c util.c xdg-shell-protocol.c
 OBJ = ${SRC:.c=.o}
 
 all: options wdwm
@@ -13,6 +13,14 @@ options:
 	@echo "CFLAGS   = ${CFLAGS}"
 	@echo "LDFLAGS  = ${LDFLAGS}"
 	@echo "CC       = ${CC}"
+
+xdg-shell-protocol.h:
+	${WAYLANDSCANNER} server-header \
+		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
+
+xdg-shell-protocol.c: xdg-shell-protocol.h
+	${WAYLANDSCANNER} private-code \
+		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
 
 .c.o:
 	${CC} -c ${CFLAGS} $<

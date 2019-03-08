@@ -8,8 +8,7 @@ add_compile_definitions(
         _DEFAULT_SOURCE
         _BSD_SOURCE
         _POSIX_C_SOURCE=2
-        XINERAMA
-)
+        XINERAMA)
 
 include_directories(
         /usr/X11R6/include
@@ -21,7 +20,9 @@ add_executable(wdwm
         drw.h
         wdwm.c
         util.c
-        util.h)
+        util.h
+        xdg-shell-protocol.h
+        xdg-shell-protocol.c)
 
 target_link_libraries(wdwm
         X11

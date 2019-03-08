@@ -1,3 +1,5 @@
 wdwm
 **/*.o
 config.h
+*-protocol.c
+*-protocol.h
