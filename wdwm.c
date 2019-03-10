@@ -56,7 +56,8 @@
 
 /* macros */
 #define BUTTONMASK              (ButtonPressMask|ButtonReleaseMask)
-#define CLEANMASK(mask)         (mask & ~(numlockmask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
+/* todo something something numlock */
+#define CLEANMASK(mask)         (mask & (WLR_MODIFIER_SHIFT|WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT|WLR_MODIFIER_MOD2|WLR_MODIFIER_MOD3|WLR_MODIFIER_LOGO|WLR_MODIFIER_MOD5))
 #define INTERSECT(x,y,w,h,m)    (MAX(0, MIN((x)+(w),(m)->wx+(m)->ww) - MAX((x),(m)->wx)) \
                                * MAX(0, MIN((y)+(h),(m)->wy+(m)->wh) - MAX((y),(m)->wy)))
 #define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]))
@@ -111,7 +112,7 @@ struct Client {
 
 typedef struct {
 	unsigned int mod;
-	KeySym keysym;
+	xkb_keysym_t keysym;
 	void (*func)(const Arg *);
 	const Arg arg;
 } Key;
@@ -151,6 +152,75 @@ typedef struct {
 	int monitor;
 } Rule;
 
+/* begin tinywl copypasta */
+enum tinywl_cursor_mode {
+	TINYWL_CURSOR_PASSTHROUGH,
+	TINYWL_CURSOR_MOVE,
+	TINYWL_CURSOR_RESIZE,
+};
+
+struct tinywl_server {
+	struct wl_display *wl_display;
+	struct wlr_backend *backend;
+	struct wlr_renderer *renderer;
+
+	struct wlr_xdg_shell *xdg_shell;
+	struct wl_listener new_xdg_surface;
+	struct wl_list views;
+
+	struct wlr_cursor *cursor;
+	struct wlr_xcursor_manager *cursor_mgr;
+	struct wl_listener cursor_motion;
+	struct wl_listener cursor_motion_absolute;
+	struct wl_listener cursor_button;
+	struct wl_listener cursor_axis;
+	struct wl_listener cursor_frame;
+
+	struct wlr_seat *seat;
+	struct wl_listener new_input;
+	struct wl_listener request_cursor;
+	struct wl_list keyboards;
+	enum tinywl_cursor_mode cursor_mode;
+	struct tinywl_view *grabbed_view;
+	double grab_x, grab_y;
+	int grab_width, grab_height;
+	uint32_t resize_edges;
+
+	struct wlr_output_layout *output_layout;
+	struct wl_list outputs;
+	struct wl_listener new_output;
+};
+
+struct tinywl_output {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_output *wlr_output;
+	struct wl_listener frame;
+};
+
+struct tinywl_view {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_xdg_surface *xdg_surface;
+	struct wl_listener map;
+	struct wl_listener unmap;
+	struct wl_listener destroy;
+	struct wl_listener request_move;
+	struct wl_listener request_resize;
+	bool mapped;
+	int x, y;
+};
+
+struct tinywl_keyboard {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_input_device *device;
+
+	struct wl_listener modifiers;
+	struct wl_listener key;
+};
+/* end tinywl copypasta */
+
 /* function declarations */
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
@@ -185,7 +255,7 @@ static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void incnmaster(const Arg *arg);
-static void keypress(XEvent *e);
+static int keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t modifiers);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
@@ -262,7 +332,7 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[EnterNotify] = enternotify,
 	[Expose] = expose,
 	[FocusIn] = focusin,
-	[KeyPress] = keypress,
+//	[KeyPress] = keypress,
 	[MappingNotify] = mappingnotify,
 	[MapRequest] = maprequest,
 	[MotionNotify] = motionnotify,
@@ -277,6 +347,7 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+static struct tinywl_server server;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -990,20 +1061,27 @@ isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 	return 1;
 }
 
-void
-keypress(XEvent *e)
+int
+keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t modifiers)
 {
 	unsigned int i;
-	KeySym keysym;
-	XKeyEvent *ev;
+	struct wlr_session *session;
 
-	ev = &e->xkey;
-	keysym = XLookupKeysym(ev, 0);
-	for (i = 0; i < LENGTH(keys); i++)
-		if (keysym == keys[i].keysym
-		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
-		&& keys[i].func)
+	if (transym >= XKB_KEY_XF86Switch_VT_1 && transym <= XKB_KEY_XF86Switch_VT_12)
+		if (wlr_backend_is_multi(server.backend))
+			if ((session = wlr_backend_get_session(server.backend)))
+				return wlr_session_change_vt(session, transym - XKB_KEY_XF86Switch_VT_1 + 1);
+
+	for (i = 0; i < LENGTH(keys); i++) {
+		if (rawsym == keys[i].keysym
+		&& CLEANMASK(keys[i].mod) == CLEANMASK(modifiers)
+		&& keys[i].func) {
 			keys[i].func(&(keys[i].arg));
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 void
@@ -1256,7 +1334,7 @@ propertynotify(XEvent *e)
 void
 quit(const Arg *arg)
 {
-	running = 0;
+	wl_display_terminate(server.wl_display);
 }
 
 Monitor *
@@ -2156,73 +2234,7 @@ dwmmain(int argc, char *argv[])
 
 /* BEGIN tinywl copypasta */
 
-/* For brevity's sake, struct members are annotated where they are used. */
-enum tinywl_cursor_mode {
-	TINYWL_CURSOR_PASSTHROUGH,
-	TINYWL_CURSOR_MOVE,
-	TINYWL_CURSOR_RESIZE,
-};
 
-struct tinywl_server {
-	struct wl_display *wl_display;
-	struct wlr_backend *backend;
-	struct wlr_renderer *renderer;
-
-	struct wlr_xdg_shell *xdg_shell;
-	struct wl_listener new_xdg_surface;
-	struct wl_list views;
-
-	struct wlr_cursor *cursor;
-	struct wlr_xcursor_manager *cursor_mgr;
-	struct wl_listener cursor_motion;
-	struct wl_listener cursor_motion_absolute;
-	struct wl_listener cursor_button;
-	struct wl_listener cursor_axis;
-	struct wl_listener cursor_frame;
-
-	struct wlr_seat *seat;
-	struct wl_listener new_input;
-	struct wl_listener request_cursor;
-	struct wl_list keyboards;
-	enum tinywl_cursor_mode cursor_mode;
-	struct tinywl_view *grabbed_view;
-	double grab_x, grab_y;
-	int grab_width, grab_height;
-	uint32_t resize_edges;
-
-	struct wlr_output_layout *output_layout;
-	struct wl_list outputs;
-	struct wl_listener new_output;
-};
-
-struct tinywl_output {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_output *wlr_output;
-	struct wl_listener frame;
-};
-
-struct tinywl_view {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_xdg_surface *xdg_surface;
-	struct wl_listener map;
-	struct wl_listener unmap;
-	struct wl_listener destroy;
-	struct wl_listener request_move;
-	struct wl_listener request_resize;
-	bool mapped;
-	int x, y;
-};
-
-struct tinywl_keyboard {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_input_device *device;
-
-	struct wl_listener modifiers;
-	struct wl_listener key;
-};
 
 static void focus_view(struct tinywl_view *view, struct wlr_surface *surface) {
 	/* Note: this function only deals with keyboard focus. */
@@ -2279,91 +2291,40 @@ static void keyboard_handle_modifiers(
 									   &keyboard->device->keyboard->modifiers);
 }
 
-static bool handle_keybinding(struct tinywl_server *server, xkb_keysym_t sym) {
-	/*
-	 * Here we handle compositor keybindings. This is when the compositor is
-	 * processing keys, rather than passing them on to the client for its own
-	 * processing.
-	 *
-	 * This function assumes Alt is held down.
-	 */
-	switch (sym) {
-		case XKB_KEY_Escape:
-			wl_display_terminate(server->wl_display);
-			break;
-		case XKB_KEY_F1:
-			/* Cycle to the next view */
-			if (wl_list_length(&server->views) < 2) {
-				break;
-			}
-			struct tinywl_view *current_view = wl_container_of(
-					server->views.next, current_view, link);
-			struct tinywl_view *next_view = wl_container_of(
-					current_view->link.next, next_view, link);
-			focus_view(next_view, next_view->xdg_surface->surface);
-			/* Move the previous view to the end of the list */
-			wl_list_remove(&current_view->link);
-			wl_list_insert(server->views.prev, &current_view->link);
-			break;
-		default:
-			return false;
-	}
-	return true;
-}
-
-static bool handle_vtswitch(struct wlr_backend *backend, const xkb_keysym_t *keysyms, int keysyms_len) {
-	for (int i = 0; i < keysyms_len; ++i) {
-		xkb_keysym_t keysym = keysyms[i];
-		if (keysym >= XKB_KEY_XF86Switch_VT_1 && keysym <= XKB_KEY_XF86Switch_VT_12) {
-			if (wlr_backend_is_multi(backend)) {
-				struct wlr_session *session = wlr_backend_get_session(backend);
-				if (session) {
-					unsigned vt = keysym - XKB_KEY_XF86Switch_VT_1 + 1;
-					wlr_session_change_vt(session, vt);
-				}
-			}
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static void keyboard_handle_key(
-		struct wl_listener *listener, void *data) {
-	/* This event is raised when a key is pressed or released. */
-	struct tinywl_keyboard *keyboard =
-			wl_container_of(listener, keyboard, key);
+static void keyboard_handle_key(struct wl_listener *listener, void *data) {
+	struct tinywl_keyboard *keyboard = wl_container_of(listener, keyboard, key);
 	struct tinywl_server *server = keyboard->server;
 	struct wlr_event_keyboard_key *event = data;
 	struct wlr_seat *seat = server->seat;
 
-	/* Translate libinput keycode -> xkbcommon */
-	uint32_t keycode = event->keycode + 8;
-	/* Get a list of keysyms based on the keymap for this keyboard */
-	const xkb_keysym_t *syms;
-	int nsyms = xkb_state_key_get_syms(
-			keyboard->device->keyboard->xkb_state, keycode, &syms);
+	int handled = 0;
+	if (event->state == WLR_KEY_PRESSED) {
 
-	bool handled = false;
-	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->device->keyboard);
-	if ((modifiers & WLR_MODIFIER_ALT) && event->state == WLR_KEY_PRESSED) {
-		/* If alt is held down and this button was _pressed_, we attempt to
-		 * process it as a compositor keybinding. */
-		for (int i = 0; i < nsyms; i++) {
-			handled = handle_keybinding(server, syms[i]);
-		}
-	}
+		/* Translate libinput keycode -> xkbcommon */
+		const xkb_keycode_t xkbkeycode = event->keycode + 8;
 
-	if (!handled) {
-		handled = handle_vtswitch(server->backend, syms, nsyms);
+		/* "translated" may have had modifiers applied to them e.g.
+		 * - '@' when the user presses 'shift-2' on a us keyboard
+		 * - special actions like virtual terminal switching key-combos */
+		const xkb_keysym_t *rawsyms, *transyms;
+		int nrawsyms, ntransyms;
+		const xkb_layout_index_t layout = xkb_state_key_get_layout(keyboard->device->keyboard->xkb_state, xkbkeycode);
+		const xkb_level_index_t level = xkb_state_key_get_level(keyboard->device->keyboard->xkb_state, xkbkeycode, layout);
+		nrawsyms = xkb_keymap_key_get_syms_by_level(keyboard->device->keyboard->keymap, xkbkeycode, layout, 0, &rawsyms);
+		ntransyms = xkb_keymap_key_get_syms_by_level(keyboard->device->keyboard->keymap, xkbkeycode, layout, level, &transyms);
+		const uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->device->keyboard);
+
+		/* only interested in the first symbol; extras are an unused xkb extension */
+		xkb_keysym_t rawsym = nrawsyms > 0 ? rawsyms[0] : 0;
+		xkb_keysym_t transym = ntransyms > 0 ? transyms[0] : 0;
+
+		handled = keypress(rawsym, transym, modifiers);
 	}
 
 	if (!handled) {
 		/* Otherwise, we pass it along to the client. */
 		wlr_seat_set_keyboard(seat, keyboard->device);
-		wlr_seat_keyboard_notify_key(seat, event->time_msec,
-									 event->keycode, event->state);
+		wlr_seat_keyboard_notify_key(seat, event->time_msec, event->keycode, event->state);
 	}
 }
 
@@ -2959,7 +2920,6 @@ int tinywlmain(int argc, char *argv[]) {
 		return 0;
 	}
 
-	struct tinywl_server server;
 	/* The Wayland display is managed by libwayland. It handles accepting
 	 * clients from the Unix socket, manging Wayland globals, and so on. */
 	server.wl_display = wl_display_create();
