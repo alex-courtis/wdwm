@@ -1070,7 +1070,7 @@ twiddle(const Arg *arg)
 	struct tinywl_view *view;
 	wl_list_for_each(view, &server.views, link) {
 		wlr_log(WLR_DEBUG, "twiddle");
-		wlr_log(WLR_DEBUG, "surface: 0x%08x", view->xdg_surface);
+		wlr_log(WLR_DEBUG, "surface: %p", view->xdg_surface);
 		wlr_log(WLR_DEBUG, "role: %s%s%s",
 				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_NONE ? "none" : "",
 				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP ? "popup" : "",
@@ -2259,7 +2259,7 @@ dwmmain(int argc, char *argv[])
 
 
 static void focus_view(struct tinywl_view *view, struct wlr_surface *surface) {
-	wlr_log(WLR_DEBUG, "focus_view view=0x%08x surface=0x%08x", view, surface);
+	wlr_log(WLR_DEBUG, "focus_view view=%p surface=%p", view, surface);
 	/* Note: this function only deals with keyboard focus. */
 	if (view == NULL) {
 		return;
@@ -2321,7 +2321,7 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 	struct wlr_event_keyboard_key *event = data;
 	struct wlr_seat *seat = server->seat;
 
-	wlr_log(WLR_DEBUG, "keyboard_handle_key %s", event->state == WLR_KEY_PRESSED ? "press" : "release");
+	wlr_log(WLR_DEBUG, "keyboard_handle_key %s", event->state == WLR_KEY_PRESSED ? "WLR_KEY_PRESSED" : "WLR_KEY_RELEASED");
 
 	int handled = 0;
 	if (event->state == WLR_KEY_PRESSED) {
@@ -2598,7 +2598,6 @@ static void server_cursor_motion(struct wl_listener *listener, void *data) {
 
 static void server_cursor_motion_absolute(
 		struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "server_cursor_motion_absolute");
 	/* This event is forwarded by the cursor when a pointer emits an _absolute_
 	 * motion event, from 0..1 on each axis. This happens, for example, when
 	 * wlroots is running under a Wayland window rather than KMS+DRM, and you
@@ -2613,12 +2612,14 @@ static void server_cursor_motion_absolute(
 }
 
 static void server_cursor_button(struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "server_cursor_button");
 	/* This event is forwarded by the cursor when a pointer emits a button
 	 * event. */
 	struct tinywl_server *server =
 			wl_container_of(listener, server, cursor_button);
 	struct wlr_event_pointer_button *event = data;
+
+	wlr_log(WLR_DEBUG, "server_cursor_button %s", event->state == WLR_BUTTON_PRESSED ? "WLR_BUTTON_PRESSED" : "WLR_BUTTON_RELEASED");
+
 	/* Notify the client with pointer focus that a button press has occurred */
 	wlr_seat_pointer_notify_button(server->seat,
 								   event->time_msec, event->button, event->state);
