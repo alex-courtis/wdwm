@@ -222,6 +222,7 @@ struct tinywl_keyboard {
 /* end tinywl copypasta */
 
 /* function declarations */
+static void twiddle(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
 static void arrange(Monitor *m);
@@ -1059,6 +1060,27 @@ isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 		&& unique[n].width == info->width && unique[n].height == info->height)
 			return 0;
 	return 1;
+}
+
+void
+twiddle(const Arg *arg)
+{
+	wlr_log(WLR_DEBUG, "");
+	wlr_log(WLR_DEBUG, "twiddle");
+	struct tinywl_view *view;
+	wl_list_for_each(view, &server.views, link) {
+		wlr_log(WLR_DEBUG, "twiddle");
+		wlr_log(WLR_DEBUG, "surface: 0x%08x", view->xdg_surface);
+		wlr_log(WLR_DEBUG, "role: %s%s%s",
+				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_NONE ? "none" : "",
+				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP ? "popup" : "",
+				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? "toplevel" : "");
+		wlr_log(WLR_DEBUG, "%dx%d %d/%d",
+				view->xdg_surface->geometry.x,
+				view->xdg_surface->geometry.y,
+				view->xdg_surface->geometry.width,
+				view->xdg_surface->geometry.height);
+	}
 }
 
 int
@@ -2237,6 +2259,7 @@ dwmmain(int argc, char *argv[])
 
 
 static void focus_view(struct tinywl_view *view, struct wlr_surface *surface) {
+	wlr_log(WLR_DEBUG, "focus_view view=0x%08x surface=0x%08x", view, surface);
 	/* Note: this function only deals with keyboard focus. */
 	if (view == NULL) {
 		return;
@@ -2275,6 +2298,7 @@ static void focus_view(struct tinywl_view *view, struct wlr_surface *surface) {
 
 static void keyboard_handle_modifiers(
 		struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "keyboard_handle_modifiers");
 	/* This event is raised when a modifier key, such as shift or alt, is
 	 * pressed. We simply communicate this to the client. */
 	struct tinywl_keyboard *keyboard =
@@ -2296,6 +2320,8 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 	struct tinywl_server *server = keyboard->server;
 	struct wlr_event_keyboard_key *event = data;
 	struct wlr_seat *seat = server->seat;
+
+	wlr_log(WLR_DEBUG, "keyboard_handle_key %s", event->state == WLR_KEY_PRESSED ? "press" : "release");
 
 	int handled = 0;
 	if (event->state == WLR_KEY_PRESSED) {
@@ -2330,6 +2356,7 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 
 static void server_new_keyboard(struct tinywl_server *server,
 								struct wlr_input_device *device) {
+	wlr_log(WLR_DEBUG, "server_new_keyboard");
 	struct tinywl_keyboard *keyboard =
 			calloc(1, sizeof(struct tinywl_keyboard));
 	keyboard->server = server;
@@ -2361,6 +2388,7 @@ static void server_new_keyboard(struct tinywl_server *server,
 
 static void server_new_pointer(struct tinywl_server *server,
 							   struct wlr_input_device *device) {
+	wlr_log(WLR_DEBUG, "server_new_pointer");
 	/* We don't do anything special with pointers. All of our pointer handling
 	 * is proxied through wlr_cursor. On another compositor, you might take this
 	 * opportunity to do libinput configuration on the device to set
@@ -2369,6 +2397,7 @@ static void server_new_pointer(struct tinywl_server *server,
 }
 
 static void server_new_input(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_new_input");
 	/* This event is raised by the backend when a new input device becomes
 	 * available. */
 	struct tinywl_server *server =
@@ -2395,6 +2424,7 @@ static void server_new_input(struct wl_listener *listener, void *data) {
 }
 
 static void seat_request_cursor(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "seat_request_cursor");
 	struct tinywl_server *server = wl_container_of(
 			listener, server, request_cursor);
 	/* This event is rasied by the seat when a client provides a cursor image */
@@ -2568,6 +2598,7 @@ static void server_cursor_motion(struct wl_listener *listener, void *data) {
 
 static void server_cursor_motion_absolute(
 		struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_cursor_motion_absolute");
 	/* This event is forwarded by the cursor when a pointer emits an _absolute_
 	 * motion event, from 0..1 on each axis. This happens, for example, when
 	 * wlroots is running under a Wayland window rather than KMS+DRM, and you
@@ -2582,6 +2613,7 @@ static void server_cursor_motion_absolute(
 }
 
 static void server_cursor_button(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_cursor_button");
 	/* This event is forwarded by the cursor when a pointer emits a button
 	 * event. */
 	struct tinywl_server *server =
@@ -2605,6 +2637,7 @@ static void server_cursor_button(struct wl_listener *listener, void *data) {
 }
 
 static void server_cursor_axis(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_cursor_axis");
 	/* This event is forwarded by the cursor when a pointer emits an axis event,
 	 * for example when you move the scroll wheel. */
 	struct tinywl_server *server =
@@ -2755,6 +2788,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 }
 
 static void server_new_output(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_new_output");
 	/* This event is rasied by the backend when a new output (aka a display or
 	 * monitor) becomes available. */
 	struct tinywl_server *server =
@@ -2795,6 +2829,7 @@ static void server_new_output(struct wl_listener *listener, void *data) {
 }
 
 static void xdg_surface_map(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "xdg_surface_map");
 	/* Called when the surface is mapped, or ready to display on-screen. */
 	struct tinywl_view *view = wl_container_of(listener, view, map);
 	view->mapped = true;
@@ -2802,12 +2837,14 @@ static void xdg_surface_map(struct wl_listener *listener, void *data) {
 }
 
 static void xdg_surface_unmap(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "xdg_surface_unmap");
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	struct tinywl_view *view = wl_container_of(listener, view, unmap);
 	view->mapped = false;
 }
 
 static void xdg_surface_destroy(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "xdg_surface_destroy");
 	/* Called when the surface is destroyed and should never be shown again. */
 	struct tinywl_view *view = wl_container_of(listener, view, destroy);
 	wl_list_remove(&view->link);
@@ -2816,6 +2853,7 @@ static void xdg_surface_destroy(struct wl_listener *listener, void *data) {
 
 static void begin_interactive(struct tinywl_view *view,
 							  enum tinywl_cursor_mode mode, uint32_t edges) {
+	wlr_log(WLR_DEBUG, "begin_interactive");
 	/* This function sets up an interactive move or resize operation, where the
 	 * compositor stops propegating pointer events to clients and instead
 	 * consumes them itself, to move or resize windows. */
@@ -2844,6 +2882,7 @@ static void begin_interactive(struct tinywl_view *view,
 
 static void xdg_toplevel_request_move(
 		struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "xdg_toplevel_request_move");
 	/* This event is raised when a client would like to begin an interactive
 	 * move, typically because the user clicked on their client-side
 	 * decorations. Note that a more sophisticated compositor should check the
@@ -2855,6 +2894,7 @@ static void xdg_toplevel_request_move(
 
 static void xdg_toplevel_request_resize(
 		struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "xdg_toplevel_request_resize");
 	/* This event is raised when a client would like to begin an interactive
 	 * resize, typically because the user clicked on their client-side
 	 * decorations. Note that a more sophisticated compositor should check the
@@ -2866,6 +2906,7 @@ static void xdg_toplevel_request_resize(
 }
 
 static void server_new_xdg_surface(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "server_new_xdg_surface");
 	/* This event is raised when wlr_xdg_shell receives a new xdg surface from a
 	 * client, either a toplevel (application window) or popup. */
 	struct tinywl_server *server =
