@@ -39,16 +39,17 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/Xft/Xft.h>
 
-#include <wayland-server.h>
+#include <xkbcommon/xkbcommon.h>
+
 #include <wlr/backend/multi.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_matrix.h>
-#include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_shell.h>
+
 #include <wlr/util/log.h>
 
 #include "drw.h"
@@ -256,7 +257,7 @@ static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void incnmaster(const Arg *arg);
-static int keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t modifiers);
+static int keypress(xkb_keysym_t rawsym, xkb_keysym_t transym, uint32_t modifiers);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
@@ -1084,7 +1085,7 @@ twiddle(const Arg *arg)
 }
 
 int
-keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t modifiers)
+keypress(xkb_keysym_t rawsym, xkb_keysym_t transym, uint32_t modifiers)
 {
 	unsigned int i, handled;
 	struct wlr_session *session;
