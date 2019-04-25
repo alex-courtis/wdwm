@@ -257,7 +257,7 @@ static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void incnmaster(const Arg *arg);
-static int keypress(xkb_keysym_t rawsym, xkb_keysym_t transym, uint32_t modifiers);
+static int keypress(xkb_keysym_t rawsym, uint32_t modifiers);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
@@ -1063,43 +1063,16 @@ isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 	return 1;
 }
 
-void
-twiddle(const Arg *arg)
-{
-	wlr_log(WLR_DEBUG, "");
-	wlr_log(WLR_DEBUG, "twiddle");
-	struct tinywl_view *view;
-	wl_list_for_each(view, &server.views, link) {
-		wlr_log(WLR_DEBUG, "twiddle");
-		wlr_log(WLR_DEBUG, "surface: %p", view->xdg_surface);
-		wlr_log(WLR_DEBUG, "role: %s%s%s",
-				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_NONE ? "none" : "",
-				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP ? "popup" : "",
-				view->xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? "toplevel" : "");
-		wlr_log(WLR_DEBUG, "%dx%d %d/%d",
-				view->xdg_surface->geometry.x,
-				view->xdg_surface->geometry.y,
-				view->xdg_surface->geometry.width,
-				view->xdg_surface->geometry.height);
-	}
-}
-
 int
-keypress(xkb_keysym_t rawsym, xkb_keysym_t transym, uint32_t modifiers)
+keypress(xkb_keysym_t keysym, uint32_t modifiers)
 {
 	unsigned int i, handled;
-	struct wlr_session *session;
-
-	if (transym >= XKB_KEY_XF86Switch_VT_1 && transym <= XKB_KEY_XF86Switch_VT_12)
-		if (wlr_backend_is_multi(server.backend))
-			if ((session = wlr_backend_get_session(server.backend)))
-				return wlr_session_change_vt(session, transym - XKB_KEY_XF86Switch_VT_1 + 1);
 
 	handled = 0;
 	for (i = 0; i < LENGTH(keys); i++) {
-		if (rawsym == keys[i].keysym
-		&& CLEANMASK(keys[i].mod) == CLEANMASK(modifiers)
-		&& keys[i].func) {
+		if (keysym == keys[i].keysym
+			&& CLEANMASK(keys[i].mod) == CLEANMASK(modifiers)
+			&& keys[i].func) {
 			keys[i].func(&(keys[i].arg));
 			handled = 1;
 		}
@@ -2342,11 +2315,22 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 		ntransyms = xkb_keymap_key_get_syms_by_level(keyboard->device->keyboard->keymap, xkbkeycode, layout, level, &transyms);
 		const uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->device->keyboard);
 
-		/* only interested in the first symbol; extras are an unused xkb extension */
+		/* only interested in the first symbol; extras are shift levels */
 		xkb_keysym_t rawsym = nrawsyms > 0 ? rawsyms[0] : 0;
 		xkb_keysym_t transym = ntransyms > 0 ? transyms[0] : 0;
 
-		handled = keypress(rawsym, transym, modifiers);
+		/* intercept virtual terminal switches */
+		struct wlr_session *session;
+		if (transym >= XKB_KEY_XF86Switch_VT_1 &&
+			transym <= XKB_KEY_XF86Switch_VT_12 &&
+			wlr_backend_is_multi(server->backend) &&
+			(session = wlr_backend_get_session(server->backend))) {
+				wlr_session_change_vt(session, transym - XKB_KEY_XF86Switch_VT_1 + 1);
+				handled = true;
+		}
+
+		if (!handled)
+			handled = keypress(rawsym, modifiers);
 	}
 
 	if (!handled) {
