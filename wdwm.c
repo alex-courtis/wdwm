@@ -1086,7 +1086,7 @@ twiddle(const Arg *arg)
 int
 keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t modifiers)
 {
-	unsigned int i;
+	unsigned int i, handled;
 	struct wlr_session *session;
 
 	if (transym >= XKB_KEY_XF86Switch_VT_1 && transym <= XKB_KEY_XF86Switch_VT_12)
@@ -1094,16 +1094,17 @@ keypress(const xkb_keysym_t rawsym, const xkb_keysym_t transym, const uint32_t m
 			if ((session = wlr_backend_get_session(server.backend)))
 				return wlr_session_change_vt(session, transym - XKB_KEY_XF86Switch_VT_1 + 1);
 
+	handled = 0;
 	for (i = 0; i < LENGTH(keys); i++) {
 		if (rawsym == keys[i].keysym
 		&& CLEANMASK(keys[i].mod) == CLEANMASK(modifiers)
 		&& keys[i].func) {
 			keys[i].func(&(keys[i].arg));
-			return 1;
+			handled = 1;
 		}
 	}
 
-	return 0;
+	return handled;
 }
 
 void

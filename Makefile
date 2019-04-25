@@ -18,14 +18,14 @@ xdg-shell-protocol.h:
 	${WAYLANDSCANNER} server-header \
 		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
 
-xdg-shell-protocol.c: xdg-shell-protocol.h
+xdg-shell-protocol.c:
 	${WAYLANDSCANNER} private-code \
 		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
 
 .c.o:
 	${CC} -c ${CFLAGS} $<
 
-${OBJ}: config.h config.mk
+${OBJ}: config.h config.mk xdg-shell-protocol.h
 
 config.h:
 	cp config.def.h $@
@@ -34,7 +34,7 @@ wdwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f wdwm ${OBJ} wdwm-${VERSION}.tar.gz
+	rm -f wdwm ${OBJ} wdwm-${VERSION}.tar.gz xdg-shell-protocol.[ch]
 
 dist: clean
 	mkdir -p wdwm-${VERSION}
