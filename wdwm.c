@@ -223,7 +223,6 @@ struct tinywl_keyboard {
 /* end tinywl copypasta */
 
 /* function declarations */
-static void twiddle(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
 static void arrange(Monitor *m);
