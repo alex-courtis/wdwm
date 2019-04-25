@@ -14,14 +14,6 @@ options:
 	@echo "LDFLAGS  = ${LDFLAGS}"
 	@echo "CC       = ${CC}"
 
-xdg-shell-protocol.h:
-	${WAYLANDSCANNER} server-header \
-		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
-
-xdg-shell-protocol.c:
-	${WAYLANDSCANNER} private-code \
-		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
-
 .c.o:
 	${CC} -c ${CFLAGS} $<
 
@@ -29,6 +21,14 @@ ${OBJ}: config.h config.mk xdg-shell-protocol.h
 
 config.h:
 	cp config.def.h $@
+
+xdg-shell-protocol.h:
+	${WAYLANDSCANNER} server-header\
+		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
+
+xdg-shell-protocol.c:
+	${WAYLANDSCANNER} private-code\
+		${WAYLANDPROTOCOLS}/stable/xdg-shell/xdg-shell.xml $@
 
 wdwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
@@ -39,7 +39,8 @@ clean:
 dist: clean
 	mkdir -p wdwm-${VERSION}
 	cp -R LICENSE Makefile README config.def.h config.mk\
-		wdwm.1 drw.h util.h ${SRC} dwm.png transient.c wdwm-${VERSION}
+		wdwm.1 drw.h util.h xdg-shell-protocol.h ${SRC} dwm.png\
+		transient.c wdwm-${VERSION}
 	tar -cf wdwm-${VERSION}.tar wdwm-${VERSION}
 	gzip wdwm-${VERSION}.tar
 	rm -rf wdwm-${VERSION}
@@ -49,7 +50,8 @@ install: all
 	cp -f wdwm ${DESTDIR}${PREFIX}/bin
 	chmod 755 ${DESTDIR}${PREFIX}/bin/wdwm
 	mkdir -p ${DESTDIR}${MANPREFIX}/man1
-	sed "s/VERSION/${VERSION}/g" < wdwm.1 > ${DESTDIR}${MANPREFIX}/man1/wdwm.1
+	sed "s/VERSION/${VERSION}/g" < wdwm.1 >\
+		${DESTDIR}${MANPREFIX}/man1/wdwm.1
 	chmod 644 ${DESTDIR}${MANPREFIX}/man1/wdwm.1
 
 uninstall:
