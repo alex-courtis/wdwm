@@ -79,6 +79,8 @@ enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms *
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
        ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
 
+typedef struct wlr_xdg_surface wlr_xdg_surface;
+
 typedef union {
 	int i;
 	unsigned int ui;
@@ -109,6 +111,7 @@ struct Client {
 	Client *snext;
 	Monitor *mon;
 	Window win;
+	wlr_xdg_surface *s;
 };
 
 typedef struct {
@@ -258,7 +261,7 @@ static void grabkeys(void);
 static void incnmaster(const Arg *arg);
 static int keypress(xkb_keysym_t rawsym, uint32_t modifiers);
 static void killclient(const Arg *arg);
-static void manage(Window w, XWindowAttributes *wa);
+static void manage(wlr_xdg_surface *s);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
@@ -314,6 +317,9 @@ static int xerror(Display *dpy, XErrorEvent *ee);
 static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
+static void dbgc(Client *c);
+static void dbgm(Monitor *m);
+static void twiddle();
 
 /* variables */
 static const char broken[] = "broken";
@@ -462,6 +468,8 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 void
 arrange(Monitor *m)
 {
+	wlr_log(WLR_DEBUG, "arrange");
+
 	if (m)
 		showhide(m->stack);
 	else for (m = mons; m; m = m->next)
@@ -712,6 +720,7 @@ configurerequest(XEvent *e)
 Monitor *
 createmon(void)
 {
+	wlr_log(WLR_DEBUG, "createmon");
 	Monitor *m;
 
 	m = ecalloc(1, sizeof(Monitor));
@@ -1097,65 +1106,74 @@ killclient(const Arg *arg)
 }
 
 void
-manage(Window w, XWindowAttributes *wa)
+manage(wlr_xdg_surface *s)
 {
-	Client *c, *t = NULL;
-	Window trans = None;
-	XWindowChanges wc;
+	wlr_log(WLR_DEBUG, "manage");
+
+	Client *c = NULL;
+//	Window trans = None;
+//	XWindowChanges wc;
 
 	c = ecalloc(1, sizeof(Client));
-	c->win = w;
+//	c->win = w;
+	c->s = s;
 	/* geometry */
-	c->x = c->oldx = wa->x;
-	c->y = c->oldy = wa->y;
-	c->w = c->oldw = wa->width;
-	c->h = c->oldh = wa->height;
-	c->oldbw = wa->border_width;
+//	c->x = c->oldx = wa->x;
+//	c->y = c->oldy = wa->y;
+//	c->w = c->oldw = wa->width;
+//	c->h = c->oldh = wa->height;
+//	c->oldbw = wa->border_width;
+	c->x = c->oldx = s->geometry.x;
+	c->y = c->oldy = s->geometry.y;
+	c->w = c->oldw = s->geometry.width;
+	c->h = c->oldh = s->geometry.height;
+	c->oldbw = 0;
 
-	updatetitle(c);
-	if (XGetTransientForHint(dpy, w, &trans) && (t = wintoclient(trans))) {
-		c->mon = t->mon;
-		c->tags = t->tags;
-	} else {
-		c->mon = selmon;
-		applyrules(c);
-	}
+//	updatetitle(c);
+//	if (XGetTransientForHint(dpy, w, &trans) && (t = wintoclient(trans))) {
+//		c->mon = t->mon;
+//		c->tags = t->tags;
+//	} else {
+//		c->mon = selmon;
+//		applyrules(c);
+//	}
+	c->mon = selmon;
 
-	if (c->x + WIDTH(c) > c->mon->mx + c->mon->mw)
-		c->x = c->mon->mx + c->mon->mw - WIDTH(c);
-	if (c->y + HEIGHT(c) > c->mon->my + c->mon->mh)
-		c->y = c->mon->my + c->mon->mh - HEIGHT(c);
-	c->x = MAX(c->x, c->mon->mx);
-	/* only fix client y-offset, if the client center might cover the bar */
-	c->y = MAX(c->y, ((c->mon->by == c->mon->my) && (c->x + (c->w / 2) >= c->mon->wx)
-		&& (c->x + (c->w / 2) < c->mon->wx + c->mon->ww)) ? bh : c->mon->my);
-	c->bw = borderpx;
+//	if (c->x + WIDTH(c) > c->mon->mx + c->mon->mw)
+//		c->x = c->mon->mx + c->mon->mw - WIDTH(c);
+//	if (c->y + HEIGHT(c) > c->mon->my + c->mon->mh)
+//		c->y = c->mon->my + c->mon->mh - HEIGHT(c);
+//	c->x = MAX(c->x, c->mon->mx);
+//	/* only fix client y-offset, if the client center might cover the bar */
+//	c->y = MAX(c->y, ((c->mon->by == c->mon->my) && (c->x + (c->w / 2) >= c->mon->wx)
+//		&& (c->x + (c->w / 2) < c->mon->wx + c->mon->ww)) ? bh : c->mon->my);
+//	c->bw = borderpx;
 
-	wc.border_width = c->bw;
-	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
-	XSetWindowBorder(dpy, w, scheme[SchemeNorm][ColBorder].pixel);
-	configure(c); /* propagates border_width, if size doesn't change */
-	updatewindowtype(c);
-	updatesizehints(c);
-	updatewmhints(c);
-	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
-	grabbuttons(c, 0);
-	if (!c->isfloating)
-		c->isfloating = c->oldstate = trans != None || c->isfixed;
-	if (c->isfloating)
-		XRaiseWindow(dpy, c->win);
+//	wc.border_width = c->bw;
+//	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
+//	XSetWindowBorder(dpy, w, scheme[SchemeNorm][ColBorder].pixel);
+//	configure(c); /* propagates border_width, if size doesn't change */
+//	updatewindowtype(c);
+//	updatesizehints(c);
+//	updatewmhints(c);
+//	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
+//	grabbuttons(c, 0);
+//	if (!c->isfloating)
+//		c->isfloating = c->oldstate = trans != None || c->isfixed;
+//	if (c->isfloating)
+//		XRaiseWindow(dpy, c->win);
 	attach(c);
 	attachstack(c);
-	XChangeProperty(dpy, root, netatom[NetClientList], XA_WINDOW, 32, PropModeAppend,
-		(unsigned char *) &(c->win), 1);
-	XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
-	setclientstate(c, NormalState);
-	if (c->mon == selmon)
-		unfocus(selmon->sel, 0);
+//	XChangeProperty(dpy, root, netatom[NetClientList], XA_WINDOW, 32, PropModeAppend,
+//		(unsigned char *) &(c->win), 1);
+//	XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
+//	setclientstate(c, NormalState);
+//	if (c->mon == selmon)
+//		unfocus(selmon->sel, 0);
 	c->mon->sel = c;
 	arrange(c->mon);
-	XMapWindow(dpy, c->win);
-	focus(NULL);
+//	XMapWindow(dpy, c->win);
+//	focus(NULL);
 }
 
 void
@@ -1178,8 +1196,8 @@ maprequest(XEvent *e)
 		return;
 	if (wa.override_redirect)
 		return;
-	if (!wintoclient(ev->window))
-		manage(ev->window, &wa);
+//	if (!wintoclient(ev->window))
+//		manage(ev->window, &wa);
 }
 
 void
@@ -1277,7 +1295,7 @@ movemouse(const Arg *arg)
 Client *
 nexttiled(Client *c)
 {
-	for (; c && (c->isfloating || !ISVISIBLE(c)); c = c->next);
+//	for (; c && (c->isfloating || !ISVISIBLE(c)); c = c->next);
 	return c;
 }
 
@@ -1350,23 +1368,28 @@ recttomon(int x, int y, int w, int h)
 void
 resize(Client *c, int x, int y, int w, int h, int interact)
 {
-	if (applysizehints(c, &x, &y, &w, &h, interact))
+//	if (applysizehints(c, &x, &y, &w, &h, interact))
 		resizeclient(c, x, y, w, h);
 }
 
 void
 resizeclient(Client *c, int x, int y, int w, int h)
 {
-	XWindowChanges wc;
+	wlr_log(WLR_DEBUG, "resizeclient x=%u y=%u w=%u h=%u", x, y, w, h);
+	dbgc(c);
 
-	c->oldx = c->x; c->x = wc.x = x;
-	c->oldy = c->y; c->y = wc.y = y;
-	c->oldw = c->w; c->w = wc.width = w;
-	c->oldh = c->h; c->h = wc.height = h;
-	wc.border_width = c->bw;
-	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
-	configure(c);
-	XSync(dpy, False);
+//	XWindowChanges wc;
+//
+	c->oldx = c->x; c->x = x;
+	c->oldy = c->y; c->y = y;
+	c->oldw = c->w; c->w = w;
+	c->oldh = c->h; c->h = h;
+//	wc.border_width = c->bw;
+//	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
+//	configure(c);
+//	XSync(dpy, False);
+
+	wlr_xdg_toplevel_set_size(c->s, w, h);
 }
 
 void
@@ -1429,26 +1452,26 @@ resizemouse(const Arg *arg)
 void
 restack(Monitor *m)
 {
-	Client *c;
-	XEvent ev;
-	XWindowChanges wc;
-
-	drawbar(m);
-	if (!m->sel)
-		return;
-	if (m->sel->isfloating || !m->lt[m->sellt]->arrange)
-		XRaiseWindow(dpy, m->sel->win);
-	if (m->lt[m->sellt]->arrange) {
-		wc.stack_mode = Below;
-		wc.sibling = m->barwin;
-		for (c = m->stack; c; c = c->snext)
-			if (!c->isfloating && ISVISIBLE(c)) {
-				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
-				wc.sibling = c->win;
-			}
-	}
-	XSync(dpy, False);
-	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+//	Client *c;
+//	XEvent ev;
+//	XWindowChanges wc;
+//
+//	drawbar(m);
+//	if (!m->sel)
+//		return;
+//	if (m->sel->isfloating || !m->lt[m->sellt]->arrange)
+//		XRaiseWindow(dpy, m->sel->win);
+//	if (m->lt[m->sellt]->arrange) {
+//		wc.stack_mode = Below;
+//		wc.sibling = m->barwin;
+//		for (c = m->stack; c; c = c->snext)
+//			if (!c->isfloating && ISVISIBLE(c)) {
+//				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
+//				wc.sibling = c->win;
+//			}
+//	}
+//	XSync(dpy, False);
+//	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 }
 
 void
@@ -1465,28 +1488,28 @@ run(void)
 void
 scan(void)
 {
-	unsigned int i, num;
-	Window d1, d2, *wins = NULL;
-	XWindowAttributes wa;
-
-	if (XQueryTree(dpy, root, &d1, &d2, &wins, &num)) {
-		for (i = 0; i < num; i++) {
-			if (!XGetWindowAttributes(dpy, wins[i], &wa)
-			|| wa.override_redirect || XGetTransientForHint(dpy, wins[i], &d1))
-				continue;
-			if (wa.map_state == IsViewable || getstate(wins[i]) == IconicState)
-				manage(wins[i], &wa);
-		}
-		for (i = 0; i < num; i++) { /* now the transients */
-			if (!XGetWindowAttributes(dpy, wins[i], &wa))
-				continue;
-			if (XGetTransientForHint(dpy, wins[i], &d1)
-			&& (wa.map_state == IsViewable || getstate(wins[i]) == IconicState))
-				manage(wins[i], &wa);
-		}
-		if (wins)
-			XFree(wins);
-	}
+//	unsigned int i, num;
+//	Window d1, d2, *wins = NULL;
+//	XWindowAttributes wa;
+//
+//	if (XQueryTree(dpy, root, &d1, &d2, &wins, &num)) {
+//		for (i = 0; i < num; i++) {
+//			if (!XGetWindowAttributes(dpy, wins[i], &wa)
+//			|| wa.override_redirect || XGetTransientForHint(dpy, wins[i], &d1))
+//				continue;
+//			if (wa.map_state == IsViewable || getstate(wins[i]) == IconicState)
+//				manage(wins[i], &wa);
+//		}
+//		for (i = 0; i < num; i++) { /* now the transients */
+//			if (!XGetWindowAttributes(dpy, wins[i], &wa))
+//				continue;
+//			if (XGetTransientForHint(dpy, wins[i], &d1)
+//			&& (wa.map_state == IsViewable || getstate(wins[i]) == IconicState))
+//				manage(wins[i], &wa);
+//		}
+//		if (wins)
+//			XFree(wins);
+//	}
 }
 
 void
@@ -1695,19 +1718,21 @@ seturgent(Client *c, int urg)
 void
 showhide(Client *c)
 {
+	wlr_log(WLR_DEBUG, "showhide");
+
 	if (!c)
 		return;
-	if (ISVISIBLE(c)) {
-		/* show clients top down */
-		XMoveWindow(dpy, c->win, c->x, c->y);
-		if ((!c->mon->lt[c->mon->sellt]->arrange || c->isfloating) && !c->isfullscreen)
-			resize(c, c->x, c->y, c->w, c->h, 0);
-		showhide(c->snext);
-	} else {
-		/* hide clients bottom up */
-		showhide(c->snext);
-		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
-	}
+//	if (ISVISIBLE(c)) {
+//		/* show clients top down */
+//		XMoveWindow(dpy, c->win, c->x, c->y);
+//		if ((!c->mon->lt[c->mon->sellt]->arrange || c->isfloating) && !c->isfullscreen)
+//			resize(c, c->x, c->y, c->w, c->h, 0);
+//		showhide(c->snext);
+//	} else {
+//		/* hide clients bottom up */
+//		showhide(c->snext);
+//		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
+//	}
 }
 
 void
@@ -1755,6 +1780,9 @@ tagmon(const Arg *arg)
 void
 tile(Monitor *m)
 {
+	wlr_log(WLR_DEBUG, "tile");
+	dbgm(m);
+
 	unsigned int i, n, h, mw, my, ty;
 	Client *c;
 
@@ -2272,7 +2300,6 @@ static void focus_view(struct tinywl_view *view, struct wlr_surface *surface) {
 
 static void keyboard_handle_modifiers(
 		struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "keyboard_handle_modifiers");
 	/* This event is raised when a modifier key, such as shift or alt, is
 	 * pressed. We simply communicate this to the client. */
 	struct tinywl_keyboard *keyboard =
@@ -2294,8 +2321,6 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 	struct tinywl_server *server = keyboard->server;
 	struct wlr_event_keyboard_key *event = data;
 	struct wlr_seat *seat = server->seat;
-
-	wlr_log(WLR_DEBUG, "keyboard_handle_key %s", event->state == WLR_KEY_PRESSED ? "WLR_KEY_PRESSED" : "WLR_KEY_RELEASED");
 
 	int handled = 0;
 	if (event->state == WLR_KEY_PRESSED) {
@@ -2341,7 +2366,6 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data) {
 
 static void server_new_keyboard(struct tinywl_server *server,
 								struct wlr_input_device *device) {
-	wlr_log(WLR_DEBUG, "server_new_keyboard");
 	struct tinywl_keyboard *keyboard =
 			calloc(1, sizeof(struct tinywl_keyboard));
 	keyboard->server = server;
@@ -2373,7 +2397,6 @@ static void server_new_keyboard(struct tinywl_server *server,
 
 static void server_new_pointer(struct tinywl_server *server,
 							   struct wlr_input_device *device) {
-	wlr_log(WLR_DEBUG, "server_new_pointer");
 	/* We don't do anything special with pointers. All of our pointer handling
 	 * is proxied through wlr_cursor. On another compositor, you might take this
 	 * opportunity to do libinput configuration on the device to set
@@ -2382,7 +2405,6 @@ static void server_new_pointer(struct tinywl_server *server,
 }
 
 static void server_new_input(struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "server_new_input");
 	/* This event is raised by the backend when a new input device becomes
 	 * available. */
 	struct tinywl_server *server =
@@ -2409,7 +2431,6 @@ static void server_new_input(struct wl_listener *listener, void *data) {
 }
 
 static void seat_request_cursor(struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "seat_request_cursor");
 	struct tinywl_server *server = wl_container_of(
 			listener, server, request_cursor);
 	/* This event is rasied by the seat when a client provides a cursor image */
@@ -2602,8 +2623,6 @@ static void server_cursor_button(struct wl_listener *listener, void *data) {
 	struct tinywl_server *server =
 			wl_container_of(listener, server, cursor_button);
 	struct wlr_event_pointer_button *event = data;
-
-	wlr_log(WLR_DEBUG, "server_cursor_button %s", event->state == WLR_BUTTON_PRESSED ? "WLR_BUTTON_PRESSED" : "WLR_BUTTON_RELEASED");
 
 	/* Notify the client with pointer focus that a button press has occurred */
 	wlr_seat_pointer_notify_button(server->seat,
@@ -2812,6 +2831,19 @@ static void server_new_output(struct wl_listener *listener, void *data) {
 	 * clients can see to find out information about the output (such as
 	 * DPI, scale factor, manufacturer, etc). */
 	wlr_output_create_global(wlr_output);
+
+	Monitor *m;
+	for (m = mons; m && m->next; m = m->next);
+	if (m)
+		m = m->next = createmon();
+	else
+		m = mons = createmon();
+	m->mw = m->ww = wlr_output->current_mode->width;
+	m->mh = m->wh = wlr_output->current_mode->height;
+	m->mx = m->my = m->wx = m-> wy = 0;
+
+	// todo remove
+	selmon = m;
 }
 
 static void xdg_surface_map(struct wl_listener *listener, void *data) {
@@ -2820,6 +2852,8 @@ static void xdg_surface_map(struct wl_listener *listener, void *data) {
 	struct tinywl_view *view = wl_container_of(listener, view, map);
 	view->mapped = true;
 	focus_view(view, view->xdg_surface->surface);
+
+	manage(view->xdg_surface);
 }
 
 static void xdg_surface_unmap(struct wl_listener *listener, void *data) {
@@ -2868,7 +2902,6 @@ static void begin_interactive(struct tinywl_view *view,
 
 static void xdg_toplevel_request_move(
 		struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "xdg_toplevel_request_move");
 	/* This event is raised when a client would like to begin an interactive
 	 * move, typically because the user clicked on their client-side
 	 * decorations. Note that a more sophisticated compositor should check the
@@ -3091,4 +3124,29 @@ main(int argc, char *argv[])
 {
 	/* return dwmmain(argc, argv); */
 	return tinywlmain(argc, argv);
+}
+
+static void dbgc(Client *c) {
+	wlr_log(WLR_DEBUG,
+			"Client %dx%d%+d%+d*%d %dx%d%+d%+d*%d %s%s%s%s'%s'",
+			c->w, c->h, c->x, c->y, c->bw,
+			c->oldw, c->oldh, c->oldx, c->oldy, c->oldbw,
+			c->isfloating ? "FL " : "",
+			c->isfixed ? "FI " : "",
+			c->isfullscreen ? "FU " : "",
+			c->oldstate ? "OS " : "",
+			c->name);
+}
+
+static void dbgm(Monitor *m) {
+	wlr_log(WLR_DEBUG,
+			"Monitor %u %dx%d%+d%+d %dx%d%+d%+d %s",
+			m->num,
+			m->mx, m->my, m->mw, m->mh,
+			m->wx, m->wy, m->ww, m->wh,
+			m->ltsymbol);
+}
+
+static void twiddle() {
+	arrange(NULL);
 }
