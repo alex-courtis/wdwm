@@ -3,3 +3,4 @@ wdwm
 config.h
 *-protocol.c
 *-protocol.h
+compile_commands.json
