@@ -49,6 +49,8 @@
 #include <wlr/types/wlr_matrix.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_server_decoration.h>
+#include <wlr/types/wlr_xdg_decoration_v1.h>
 
 #include <wlr/util/log.h>
 
@@ -79,7 +81,72 @@ enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms *
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
        ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
 
+/* begin tinywl copypasta */
+struct tinywl_server {
+	struct wl_display *wl_display;
+	struct wlr_backend *backend;
+	struct wlr_renderer *renderer;
+
+	struct wlr_xdg_shell *xdg_shell;
+	struct wl_listener new_xdg_surface;
+	struct wl_list views;
+
+	struct wlr_cursor *cursor;
+	struct wlr_xcursor_manager *cursor_mgr;
+	struct wl_listener cursor_motion;
+	struct wl_listener cursor_motion_absolute;
+	struct wl_listener cursor_button;
+	struct wl_listener cursor_axis;
+	struct wl_listener cursor_frame;
+
+	struct wlr_seat *seat;
+	struct wl_listener new_input;
+	struct wl_listener request_cursor;
+	struct wl_list keyboards;
+
+	struct wlr_output_layout *output_layout;
+	struct wl_list outputs;
+	struct wl_listener new_output;
+
+	struct wlr_server_decoration_manager *server_decoration_manager;
+	struct wl_listener server_decoration;
+	struct wl_list decorations; // sway_server_decoration::link
+
+	struct wlr_xdg_decoration_manager_v1 *xdg_decoration_manager;
+	struct wl_listener xdg_decoration;
+	struct wl_list xdg_decorations; // sway_xdg_decoration::link
+};
+
+struct tinywl_output {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_output *wlr_output;
+	struct wl_listener frame;
+};
+
+struct tinywl_view {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_xdg_surface *xdg_surface;
+	struct wl_listener map;
+	struct wl_listener unmap;
+	struct wl_listener destroy;
+	bool mapped;
+	int x, y;
+};
+
+struct tinywl_keyboard {
+	struct wl_list link;
+	struct tinywl_server *server;
+	struct wlr_input_device *device;
+
+	struct wl_listener modifiers;
+	struct wl_listener key;
+};
+/* end tinywl copypasta */
+
 typedef struct wlr_xdg_surface wlr_xdg_surface;
+typedef struct tinywl_view tinywl_view;
 
 typedef union {
 	int i;
@@ -111,7 +178,7 @@ struct Client {
 	Client *snext;
 	Monitor *mon;
 	Window win;
-	wlr_xdg_surface *s;
+	tinywl_view *v;
 };
 
 typedef struct {
@@ -156,74 +223,6 @@ typedef struct {
 	int monitor;
 } Rule;
 
-/* begin tinywl copypasta */
-enum tinywl_cursor_mode {
-	TINYWL_CURSOR_PASSTHROUGH,
-	TINYWL_CURSOR_MOVE,
-	TINYWL_CURSOR_RESIZE,
-};
-
-struct tinywl_server {
-	struct wl_display *wl_display;
-	struct wlr_backend *backend;
-	struct wlr_renderer *renderer;
-
-	struct wlr_xdg_shell *xdg_shell;
-	struct wl_listener new_xdg_surface;
-	struct wl_list views;
-
-	struct wlr_cursor *cursor;
-	struct wlr_xcursor_manager *cursor_mgr;
-	struct wl_listener cursor_motion;
-	struct wl_listener cursor_motion_absolute;
-	struct wl_listener cursor_button;
-	struct wl_listener cursor_axis;
-	struct wl_listener cursor_frame;
-
-	struct wlr_seat *seat;
-	struct wl_listener new_input;
-	struct wl_listener request_cursor;
-	struct wl_list keyboards;
-	enum tinywl_cursor_mode cursor_mode;
-	struct tinywl_view *grabbed_view;
-	double grab_x, grab_y;
-	int grab_width, grab_height;
-	uint32_t resize_edges;
-
-	struct wlr_output_layout *output_layout;
-	struct wl_list outputs;
-	struct wl_listener new_output;
-};
-
-struct tinywl_output {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_output *wlr_output;
-	struct wl_listener frame;
-};
-
-struct tinywl_view {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_xdg_surface *xdg_surface;
-	struct wl_listener map;
-	struct wl_listener unmap;
-	struct wl_listener destroy;
-	struct wl_listener request_move;
-	struct wl_listener request_resize;
-	bool mapped;
-	int x, y;
-};
-
-struct tinywl_keyboard {
-	struct wl_list link;
-	struct tinywl_server *server;
-	struct wlr_input_device *device;
-
-	struct wl_listener modifiers;
-	struct wl_listener key;
-};
-/* end tinywl copypasta */
 
 /* function declarations */
 static void applyrules(Client *c);
@@ -261,7 +260,7 @@ static void grabkeys(void);
 static void incnmaster(const Arg *arg);
 static int keypress(xkb_keysym_t rawsym, uint32_t modifiers);
 static void killclient(const Arg *arg);
-static void manage(wlr_xdg_surface *s);
+static void manage(tinywl_view *v);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
@@ -1106,7 +1105,7 @@ killclient(const Arg *arg)
 }
 
 void
-manage(wlr_xdg_surface *s)
+manage(tinywl_view *v)
 {
 	wlr_log(WLR_DEBUG, "manage");
 
@@ -1116,17 +1115,17 @@ manage(wlr_xdg_surface *s)
 
 	c = ecalloc(1, sizeof(Client));
 //	c->win = w;
-	c->s = s;
+	c->v = v;
 	/* geometry */
 //	c->x = c->oldx = wa->x;
 //	c->y = c->oldy = wa->y;
 //	c->w = c->oldw = wa->width;
 //	c->h = c->oldh = wa->height;
 //	c->oldbw = wa->border_width;
-	c->x = c->oldx = s->geometry.x;
-	c->y = c->oldy = s->geometry.y;
-	c->w = c->oldw = s->geometry.width;
-	c->h = c->oldh = s->geometry.height;
+	c->x = c->oldx = v->xdg_surface->geometry.x;
+	c->y = c->oldy = v->xdg_surface->geometry.y;
+	c->w = c->oldw = v->xdg_surface->geometry.width;
+	c->h = c->oldh = v->xdg_surface->geometry.height;
 	c->oldbw = 0;
 
 //	updatetitle(c);
@@ -1376,7 +1375,12 @@ void
 resizeclient(Client *c, int x, int y, int w, int h)
 {
 	wlr_log(WLR_DEBUG, "resizeclient x=%u y=%u w=%u h=%u", x, y, w, h);
+	wlr_log(WLR_DEBUG, "resizeclient %u %u %u %u", c->v->x, c->v->y, w, h);
 	dbgc(c);
+
+	// not doing anything to stop the windows drawing decorations
+	wlr_xdg_toplevel_set_tiled(c->v->xdg_surface, WLR_EDGE_LEFT | WLR_EDGE_RIGHT | WLR_EDGE_TOP | WLR_EDGE_BOTTOM);
+	wlr_xdg_toplevel_set_fullscreen(c->v->xdg_surface, 1);
 
 //	XWindowChanges wc;
 //
@@ -1389,7 +1393,10 @@ resizeclient(Client *c, int x, int y, int w, int h)
 //	configure(c);
 //	XSync(dpy, False);
 
-	wlr_xdg_toplevel_set_size(c->s, w, h);
+	c->v->x = x;
+	c->v->y = y;
+
+	wlr_xdg_toplevel_set_size(c->v->xdg_surface, w, h);
 }
 
 void
@@ -2493,62 +2500,7 @@ static struct tinywl_view *desktop_view_at(
 	return NULL;
 }
 
-static void process_cursor_move(struct tinywl_server *server, uint32_t time) {
-	/* Move the grabbed view to the new position. */
-	server->grabbed_view->x = server->cursor->x - server->grab_x;
-	server->grabbed_view->y = server->cursor->y - server->grab_y;
-}
-
-static void process_cursor_resize(struct tinywl_server *server, uint32_t time) {
-	/*
-	 * Resizing the grabbed view can be a little bit complicated, because we
-	 * could be resizing from any corner or edge. This not only resizes the view
-	 * on one or two axes, but can also move the view if you resize from the top
-	 * or left edges (or top-left corner).
-	 *
-	 * Note that I took some shortcuts here. In a more fleshed-out compositor,
-	 * you'd wait for the client to prepare a buffer at the new size, then
-	 * commit any movement that was prepared.
-	 */
-	struct tinywl_view *view = server->grabbed_view;
-	double dx = server->cursor->x - server->grab_x;
-	double dy = server->cursor->y - server->grab_y;
-	double x = view->x;
-	double y = view->y;
-	int width = server->grab_width;
-	int height = server->grab_height;
-	if (server->resize_edges & WLR_EDGE_TOP) {
-		y = server->grab_y + dy;
-		height -= dy;
-		if (height < 1) {
-			y += height;
-		}
-	} else if (server->resize_edges & WLR_EDGE_BOTTOM) {
-		height += dy;
-	}
-	if (server->resize_edges & WLR_EDGE_LEFT) {
-		x = server->grab_x + dx;
-		width -= dx;
-		if (width < 1) {
-			x += width;
-		}
-	} else if (server->resize_edges & WLR_EDGE_RIGHT) {
-		width += dx;
-	}
-	view->x = x;
-	view->y = y;
-	wlr_xdg_toplevel_set_size(view->xdg_surface, width, height);
-}
-
 static void process_cursor_motion(struct tinywl_server *server, uint32_t time) {
-	/* If the mode is non-passthrough, delegate to those functions. */
-	if (server->cursor_mode == TINYWL_CURSOR_MOVE) {
-		process_cursor_move(server, time);
-		return;
-	} else if (server->cursor_mode == TINYWL_CURSOR_RESIZE) {
-		process_cursor_resize(server, time);
-		return;
-	}
 
 	/* Otherwise, find the view under the pointer and send the event along. */
 	double sx, sy;
@@ -2632,10 +2584,7 @@ static void server_cursor_button(struct wl_listener *listener, void *data) {
 	struct wlr_surface *surface;
 	struct tinywl_view *view = desktop_view_at(server,
 											   server->cursor->x, server->cursor->y, &surface, &sx, &sy);
-	if (event->state == WLR_BUTTON_RELEASED) {
-		/* If you released any buttons, we exit interactive move/resize mode. */
-		server->cursor_mode = TINYWL_CURSOR_PASSTHROUGH;
-	} else {
+	if (event->state != WLR_BUTTON_RELEASED) {
 		/* Focus that client if the button was _pressed_ */
 		focus_view(view, surface);
 	}
@@ -2746,7 +2695,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
 	/* wlr_output_make_current makes the OpenGL context current. */
-	if (!wlr_output_make_current(output->wlr_output, NULL)) {
+	if (!wlr_output_attach_render(output->wlr_output, NULL)) {
 		return;
 	}
 	/* The "effective" resolution can change if you rotate your outputs. */
@@ -2789,7 +2738,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 	/* Conclude rendering and swap the buffers, showing the final frame
 	 * on-screen. */
 	wlr_renderer_end(renderer);
-	wlr_output_swap_buffers(output->wlr_output, NULL, NULL);
+	wlr_output_commit(output->wlr_output);
 }
 
 static void server_new_output(struct wl_listener *listener, void *data) {
@@ -2853,7 +2802,7 @@ static void xdg_surface_map(struct wl_listener *listener, void *data) {
 	view->mapped = true;
 	focus_view(view, view->xdg_surface->surface);
 
-	manage(view->xdg_surface);
+	manage(view);
 }
 
 static void xdg_surface_unmap(struct wl_listener *listener, void *data) {
@@ -2869,59 +2818,6 @@ static void xdg_surface_destroy(struct wl_listener *listener, void *data) {
 	struct tinywl_view *view = wl_container_of(listener, view, destroy);
 	wl_list_remove(&view->link);
 	free(view);
-}
-
-static void begin_interactive(struct tinywl_view *view,
-							  enum tinywl_cursor_mode mode, uint32_t edges) {
-	wlr_log(WLR_DEBUG, "begin_interactive");
-	/* This function sets up an interactive move or resize operation, where the
-	 * compositor stops propegating pointer events to clients and instead
-	 * consumes them itself, to move or resize windows. */
-	struct tinywl_server *server = view->server;
-	struct wlr_surface *focused_surface =
-			server->seat->pointer_state.focused_surface;
-	if (view->xdg_surface->surface != focused_surface) {
-		/* Deny move/resize requests from unfocused clients. */
-		return;
-	}
-	server->grabbed_view = view;
-	server->cursor_mode = mode;
-	struct wlr_box geo_box;
-	wlr_xdg_surface_get_geometry(view->xdg_surface, &geo_box);
-	if (mode == TINYWL_CURSOR_MOVE) {
-		server->grab_x = server->cursor->x - view->x;
-		server->grab_y = server->cursor->y - view->y;
-	} else {
-		server->grab_x = server->cursor->x + geo_box.x;
-		server->grab_y = server->cursor->y + geo_box.y;
-	}
-	server->grab_width = geo_box.width;
-	server->grab_height = geo_box.height;
-	server->resize_edges = edges;
-}
-
-static void xdg_toplevel_request_move(
-		struct wl_listener *listener, void *data) {
-	/* This event is raised when a client would like to begin an interactive
-	 * move, typically because the user clicked on their client-side
-	 * decorations. Note that a more sophisticated compositor should check the
-	 * provied serial against a list of button press serials sent to this
-	 * client, to prevent the client from requesting this whenever they want. */
-	struct tinywl_view *view = wl_container_of(listener, view, request_move);
-	begin_interactive(view, TINYWL_CURSOR_MOVE, 0);
-}
-
-static void xdg_toplevel_request_resize(
-		struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "xdg_toplevel_request_resize");
-	/* This event is raised when a client would like to begin an interactive
-	 * resize, typically because the user clicked on their client-side
-	 * decorations. Note that a more sophisticated compositor should check the
-	 * provied serial against a list of button press serials sent to this
-	 * client, to prevent the client from requesting this whenever they want. */
-	struct wlr_xdg_toplevel_resize_event *event = data;
-	struct tinywl_view *view = wl_container_of(listener, view, request_resize);
-	begin_interactive(view, TINYWL_CURSOR_RESIZE, event->edges);
 }
 
 static void server_new_xdg_surface(struct wl_listener *listener, void *data) {
@@ -2949,15 +2845,16 @@ static void server_new_xdg_surface(struct wl_listener *listener, void *data) {
 	view->destroy.notify = xdg_surface_destroy;
 	wl_signal_add(&xdg_surface->events.destroy, &view->destroy);
 
-	/* cotd */
-	struct wlr_xdg_toplevel *toplevel = xdg_surface->toplevel;
-	view->request_move.notify = xdg_toplevel_request_move;
-	wl_signal_add(&toplevel->events.request_move, &view->request_move);
-	view->request_resize.notify = xdg_toplevel_request_resize;
-	wl_signal_add(&toplevel->events.request_resize, &view->request_resize);
-
 	/* Add it to the list of views. */
 	wl_list_insert(&server->views, &view->link);
+}
+
+void handle_server_decoration(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "handle_server_decoration");
+}
+
+void handle_xdg_decoration(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "handle_xdg_decoration");
 }
 
 int tinywlmain(int argc, char *argv[]) {
@@ -3079,6 +2976,24 @@ int tinywlmain(int argc, char *argv[]) {
 	server.request_cursor.notify = seat_request_cursor;
 	wl_signal_add(&server.seat->events.request_set_cursor,
 				  &server.request_cursor);
+
+	server.server_decoration_manager =
+		wlr_server_decoration_manager_create(server.wl_display);
+	wlr_server_decoration_manager_set_default_mode(
+		server.server_decoration_manager,
+		WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
+	wl_signal_add(&server.server_decoration_manager->events.new_decoration,
+		&server.server_decoration);
+	server.server_decoration.notify = handle_server_decoration;
+	wl_list_init(&server.decorations);
+
+	server.xdg_decoration_manager =
+		wlr_xdg_decoration_manager_v1_create(server.wl_display);
+	wl_signal_add(
+			&server.xdg_decoration_manager->events.new_toplevel_decoration,
+			&server.xdg_decoration);
+	server.xdg_decoration.notify = handle_xdg_decoration;
+	wl_list_init(&server.xdg_decorations);
 
 	/* Add a Unix socket to the Wayland display. */
 	const char *socket = wl_display_add_socket_auto(server.wl_display);
